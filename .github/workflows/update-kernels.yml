@@ -1,0 +1,53 @@
+---
+name: Update Kernels
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 6 * * *'
+
+# Checks if any concurrent jobs is running for kernels CI and eventually cancel it.
+concurrency:
+  group: kernels-ci
+  cancel-in-progress: true
+
+jobs:
+  update-kernels:
+    runs-on: ubuntu-latest
+    container:
+      image: khulnasoft/kernel-crawler:latest
+      options: -u root
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout crawler
+        uses: actions/checkout@v3
+
+      - name: Run crawler for x86_64
+        run: |
+          mkdir site/x86_64
+          kernel-crawler crawl --distro="*" > site/x86_64/list.json
+
+      - name: Run crawler for aarch64
+        run: |
+          mkdir site/aarch64
+          kernel-crawler crawl --distro="*" --arch=aarch64 > site/aarch64/list.json
+
+      - name: Install deps
+        run: |
+          apt update
+          apt install -y jq
+
+      - name: Validate jsons
+        run: |
+          cat site/x86_64/list.json | jq empty
+          cat site/aarch64/list.json | jq empty
+
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: 'site'
+
+      - id: deployment
+        uses: actions/deploy-pages@v1
