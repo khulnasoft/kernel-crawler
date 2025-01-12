@@ -20,7 +20,7 @@ jobs:
           ignore: DL3008
 
       - name: Lint kernel-crawler
-        uses: github/super-linter@v4 # GitHub Super-Linter for pylint
+        uses: github/super-linter@v7 # GitHub Super-Linter for pylint
         with:
           args: "pip install -r requirements.txt ; pylint kernel_crawler"
         continue-on-error: true  # allow failure for now
