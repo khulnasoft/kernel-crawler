@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Copyright (C) 2023 The Falco Authors.
+# Copyright (C) 2023 The KhulnaSoft Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-    # http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -34,15 +34,15 @@ class BottleRocketMirror(GitMirror):
 
         alkernel = requests.get(source)
         alkernel.raise_for_status()
-        with open('/tmp/alkernel.rpm', 'wb') as f:
+        with open("/tmp/alkernel.rpm", "wb") as f:
             f.write(alkernel.content)
 
-        with rpmfile.open('/tmp/alkernel.rpm') as rpm:
+        with rpmfile.open("/tmp/alkernel.rpm") as rpm:
             # Extract a fileobject from the archive
-            fd = rpm.extractfile('config-' + self.arch)
+            fd = rpm.extractfile("config-" + self.arch)
             baseconfig = [line for line in fd.readlines()]
 
-        os.remove('/tmp/alkernel.rpm')
+        os.remove("/tmp/alkernel.rpm")
         return baseconfig
 
     def extract_flavor(self, flavorconfig_path):
@@ -50,18 +50,18 @@ class BottleRocketMirror(GitMirror):
         return re.match(r"^config-bottlerocket-(.*)", flavorconfig_file).group(1)
 
     def extract_kver(self, kverspec_file):
-        return re.match(r"^kernel-(.*).spec", kverspec_file).group(1)
+        return re.match(r"^kernel-(.*).spec$", kverspec_file).group(1)
 
     def set_kernel_config(self, baseconfig, key, value):
         for i, line in enumerate(baseconfig):
             if key in str(line):
-                baseconfig[i] = key.encode() + b'=' + value.encode()
+                baseconfig[i] = key.encode() + b"=" + value.encode()
                 break
 
     def unset_kernel_config(self, baseconfig, key):
         for i, line in enumerate(baseconfig):
             if line.startswith(key):
-                baseconfig[i] = b'# ' + key.encode() + b' is not set\n'
+                baseconfig[i] = b"# " + key.encode() + b" is not set\n"
                 break
 
     def patch_config(self, baseconfig, patch):
@@ -79,20 +79,26 @@ class BottleRocketMirror(GitMirror):
                 self.set_kernel_config(baseconfig, key, value)
         return baseconfig
 
-    def get_package_tree(self, version=''):
+    def get_package_tree(self, version=""):
         self.list_repo()
         sys.stdout.flush()
         kernel_configs = {}
         bottlerocket_versions = self.getVersions(3)
 
         for v in bottlerocket_versions:
-            bar = ProgressBar(label="Building config for bottlerocket v{}".format(v), length=1, file=sys.stderr)
+            bar = ProgressBar(
+                label="Building config for bottlerocket v{}".format(v),
+                length=1,
+                file=sys.stderr,
+            )
             self.checkout_version(v)
 
             # Find supported kernels dynamically
-            supported_kernel_specs = self.match_file("kernel-.*.spec", False)
+            supported_kernel_specs = self.match_file("kernel-.*.spec", True)
             for kverspec_file in supported_kernel_specs:
-                kver = self.extract_kver(kverspec_file)
+                name = os.path.basename(kverspec_file)
+                wd = os.path.dirname(kverspec_file)
+                kver = self.extract_kver(name)
 
                 # same meaning as the output of "uname -r"
                 kernel_release = self.extract_value(kverspec_file, "Version", ":")
@@ -100,42 +106,62 @@ class BottleRocketMirror(GitMirror):
                     continue
 
                 # Load base config
-                baseconfig = self.fetch_base_config(kverspec_file)
-                if baseconfig is None:
+                vanillaconfig = self.fetch_base_config(kverspec_file)
+                if vanillaconfig is None:
                     continue
 
                 # Load common config
-                commonconfig_file = self.search_file("config-bottlerocket")
-                if commonconfig_file is None:
+                specific_config_file = self.search_file("config-bottlerocket", wd)
+                if specific_config_file is None:
                     continue
-                with open(commonconfig_file, 'r') as fd:
-                    commonconfig = fd.readlines()
+
+                with open(specific_config_file, "r") as fd:
+                    specific_config = fd.readlines()
 
                 # Find supported flavors dynamically
-                supported_flavors = self.match_file("config-bottlerocket-.*")
-                for flavorconfig_file in supported_flavors:
-                    flavor = self.extract_flavor(flavorconfig_file)
+                supported_flavors = self.match_file("config-bottlerocket-.*", True, wd)
+                if supported_flavors:
+                    for flavorconfig_file in supported_flavors:
+                        flavor = self.extract_flavor(flavorconfig_file)
 
-                    # Load flavor specific config
-                    with open(flavorconfig_file, 'r') as fd:
-                        flavorconfig = fd.readlines()
+                        # Load flavor specific config
+                        with open(flavorconfig_file, "r") as fd:
+                            flavorconfig = fd.readlines()
 
-                    # Merge flavor and common config
-                    flavorconfig += commonconfig
+                        # Merge flavor and common config
+                        flavorconfig += specific_config
 
-                    # Finally, patch baseconfig with flavor config
-                    finalconfig = self.patch_config(baseconfig, flavorconfig)
-                    defconfig_base64 = base64.b64encode(b''.join(finalconfig)).decode()
+                        # Finally, patch baseconfig with flavor config
+                        finalconfig = self.patch_config(vanillaconfig, flavorconfig)
+                        defconfig_base64 = base64.b64encode(b"".join(finalconfig)).decode()
 
-                    kernel_version = "1_" + v + "-" + flavor
+                        kernel_version = "1_" + v + "-" + flavor
 
-                    # Unique key
-                    kernel_configs[v + "_" + kver + "-" + flavor] = {
-                        self.KERNEL_VERSION: kernel_version,
-                        self.KERNEL_RELEASE: kernel_release,
-                        self.DISTRO_TARGET: "bottlerocket",
-                        self.BASE_64_CONFIG_DATA: defconfig_base64,
-                    }
+                        # Unique key
+                        kernel_configs[v + "_" + kver + "-" + flavor] = {
+                            self.KERNEL_VERSION: kernel_version,
+                            self.KERNEL_RELEASE: kernel_release,
+                            self.DISTRO_TARGET: "bottlerocket",
+                            self.BASE_64_CONFIG_DATA: defconfig_base64,
+                        }
+                else:
+                    # NOTE: to keep backward compatibility with existing drivers
+                    # and driver loader logic, push these kernels for each flavor
+                    # even if the config is the same among all of them.
+                    # We will build 3x the drivers but we will be backward compatible.
+                    for flavor in ["aws", "metal", "vmware"]:
+                        finalconfig = self.patch_config(vanillaconfig, specific_config)
+                        defconfig_base64 = base64.b64encode(b"".join(finalconfig)).decode()
+
+                        kernel_version = "1_" + v + "-" + flavor
+
+                        # Unique key
+                        kernel_configs[v + "_" + kver + "-" + flavor] = {
+                            self.KERNEL_VERSION: kernel_version,
+                            self.KERNEL_RELEASE: kernel_release,
+                            self.DISTRO_TARGET: "bottlerocket",
+                            self.BASE_64_CONFIG_DATA: defconfig_base64,
+                        }
 
             bar.update(1)
             bar.render_finish()

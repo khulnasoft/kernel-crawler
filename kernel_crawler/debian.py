@@ -1,37 +1,42 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Copyright (C) 2023 The Falco Authors.
+# Copyright (C) 2023 The KhulnaSoft Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-    # http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import repo
-from . import deb
-import click
 import sys
 
+import click
+
+from . import deb, repo
+
+
 def repo_filter(dist):
-    return 'stable' not in dist and 'testing' not in dist and not dist.startswith('Debian')
+    return "stable" not in dist and "testing" not in dist and not dist.startswith("Debian")
+
 
 def fixup_deb_arch(arch):
-    if arch == 'x86_64':
-        return 'amd64'
-    elif arch == 'aarch64':
-        return 'arm64'
+    if arch == "x86_64":
+        return "amd64"
+    elif arch == "aarch64":
+        return "arm64"
+
 
 class DebianMirror(repo.Distro):
     def __init__(self, arch):
         arch = fixup_deb_arch(arch)
         mirrors = [
-            deb.DebMirror('http://mirrors.edge.kernel.org/debian/', arch, repo_filter),
-            deb.DebMirror('http://security.debian.org/', arch, repo_filter),
-            deb.DebMirror('http://archive.raspberrypi.com/debian/', arch, repo_filter),
+            deb.DebMirror("http://mirrors.edge.kernel.org/debian/", arch, repo_filter),
+            deb.DebMirror("http://security.debian.org/", arch, repo_filter),
+            deb.DebMirror("http://archive.raspberrypi.com/debian/", arch, repo_filter),
+            deb.DebMirror("http://security.debian.org/debian-security/", arch, repo_filter),
         ]
         super(DebianMirror, self).__init__(mirrors, arch)
 
@@ -39,12 +44,12 @@ class DebianMirror(repo.Distro):
     # can be resolved (i.e. build_package_tree) across multiple repositories.
     # This is namely required for the linux-kbuild package, which is typically
     # hosted on a different repository compared to the kernel packages
-    def get_package_tree(self, version=''):
+    def get_package_tree(self, version=""):
         all_packages = {}
         all_kernel_packages = []
         packages = {}
         repos = self.list_repos()
-        with click.progressbar(repos, label='Listing packages', file=sys.stderr, item_show_func=repo.to_s) as repos:
+        with click.progressbar(repos, label="Listing packages", file=sys.stderr, item_show_func=repo.to_s) as repos:
             for repository in repos:
                 repo_packages = repository.get_raw_package_db()
                 all_packages.update(repo_packages)

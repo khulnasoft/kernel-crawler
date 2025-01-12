@@ -1,26 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Copyright (C) 2023 The Falco Authors.
+# Copyright (C) 2023 The KhulnaSoft Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-    # http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import tempfile
-import shutil
-import re
-import os
 import base64
+import os
+import re
+import shutil
 import sys
+import tempfile
 
+import pygit2
 from click import progressbar as ProgressBar
 from semantic_version import Version as SemVersion
-import pygit2
 
 from kernel_crawler.repo import Distro, DriverKitConfig
 
@@ -34,7 +34,11 @@ class ProgressCallback(pygit2.RemoteCallbacks):
 
     def transfer_progress(self, stats):
         if not self.progress_bar_initialized:
-            self.bar = ProgressBar(label='Cloning ' + self.name + ' repository', length=stats.total_objects, file=sys.stderr)
+            self.bar = ProgressBar(
+                label="Cloning " + self.name + " repository",
+                length=stats.total_objects,
+                file=sys.stderr,
+            )
             self.bar.update(1)
             self.progress_bar_initialized = True
         if not self.bar.is_hidden:
@@ -51,7 +55,7 @@ class GitMirror(Distro):
     BASE_64_CONFIG_DATA = "kernelconfigdata"
 
     def __init__(self, repoorg, reponame, arch):
-        mirrors = "https://github.com/"+repoorg+"/"+reponame+".git"
+        mirrors = "https://github.com/" + repoorg + "/" + reponame + ".git"
         self.repo = None
         self.repo_name = reponame
         Distro.__init__(self, mirrors, arch)
@@ -67,9 +71,9 @@ class GitMirror(Distro):
         shutil.rmtree(self.repo.workdir, True)
 
     def getVersions(self, last_n=0):
-        re_tags = re.compile('^refs/tags/v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)$')
+        re_tags = re.compile(r"^refs/tags/v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)$")
 
-        all_versions = [os.path.basename(v).strip('v') for v in self.repo.references if re_tags.match(v)]
+        all_versions = [os.path.basename(v).strip("v") for v in self.repo.references if re_tags.match(v)]
         all_versions.sort(key=SemVersion)
 
         no_patch_versions = list(filter((lambda x: SemVersion(x).patch == 0), all_versions))
@@ -86,29 +90,33 @@ class GitMirror(Distro):
 
     def checkout_version(self, vers):
         self.repo.checkout("refs/tags/v" + vers)
-    
+
     # Since pygit does not support checking out commits,
     # we create a fake ref for the hash, and checkout it.
     def checkout_hash(self, commithash):
         try:
-            self.repo.references.create('refs/tags/v' + commithash, commithash)
+            self.repo.references.create("refs/tags/v" + commithash, commithash)
         except pygit2.AlreadyExistsError:
-            pass # already existent
-            
+            pass  # already existent
+
         return self.checkout_version(commithash)
 
-    def search_file(self, file_name):
-        for dirpath, dirnames, files in os.walk(self.repo.workdir):
+    def search_file(self, file_name, wd=""):
+        if wd == "":
+            wd = self.repo.workdir
+        for dirpath, _dirnames, files in os.walk(wd):
             for name in files:
                 if name == file_name:
                     return os.path.join(dirpath, name)
         return None
 
-    def match_file(self, pattern, fullpath=True):
+    def match_file(self, pattern, fullpath=True, wd=""):
         matches = []
-        for dirpath, dirnames, files in os.walk(self.repo.workdir):
+        if wd == "":
+            wd = self.repo.workdir
+        for dirpath, _dirnames, files in os.walk(wd):
             for name in files:
-                if re.search(r'^'+pattern, name):
+                if re.search(r"^" + pattern, name):
                     if fullpath:
                         matches.append(os.path.join(dirpath, name))
                     else:
@@ -116,15 +124,17 @@ class GitMirror(Distro):
         return matches
 
     def extract_value(self, file_name, key, sep):
-        # here kernel release is the same as the one given by "uname -r"
-        full_path = self.search_file(file_name)
+        if os.path.isabs(file_name):
+            full_path = file_name
+        else:
+            full_path = self.search_file(file_name)
         for line in open(full_path):
             stripped_line = line.lstrip()
-            if re.search(r'^'+key + sep, stripped_line):
+            if re.search(r"^" + key + sep, stripped_line):
                 tokens = stripped_line.strip().split(sep, 1)
                 return tokens[1].strip('"').strip()
         return None
-    
+
     def extract_line(self, file_path):
         full_path = self.repo.workdir + file_path
         for line in open(full_path):
@@ -144,4 +154,5 @@ class GitMirror(Distro):
             config[self.DISTRO_TARGET],
             None,
             config[self.KERNEL_VERSION],
-            config[self.BASE_64_CONFIG_DATA])
+            config[self.BASE_64_CONFIG_DATA],
+        )

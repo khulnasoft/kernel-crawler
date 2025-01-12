@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Copyright (C) 2023 The Falco Authors.
+# Copyright (C) 2023 The KhulnaSoft Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-    # http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -12,55 +12,54 @@
 # limitations under the License.
 
 from . import repo
-from .minikube import MinikubeMirror
 from .aliyunlinux import AliyunLinuxMirror
 from .almalinux import AlmaLinuxMirror
-from .amazonlinux import AmazonLinux1Mirror, AmazonLinux2Mirror, AmazonLinux2022Mirror, AmazonLinux2023Mirror
+from .amazonlinux import (
+    AmazonLinux1Mirror,
+    AmazonLinux2Mirror,
+    AmazonLinux2022Mirror,
+    AmazonLinux2023Mirror,
+)
+from .archlinux import ArchLinuxMirror
+from .bottlerocket import BottleRocketMirror
 from .centos import CentosMirror
+from .debian import DebianMirror
 from .fedora import FedoraMirror
+from .flatcar import FlatcarMirror
+from .minikube import MinikubeMirror
+from .opensuse import OpenSUSEMirror
 from .oracle import OracleMirror
 from .photon import PhotonOsMirror
-from .rockylinux import RockyLinuxMirror
-
-from .opensuse import OpenSUSEMirror
-
-from .debian import DebianMirror
-from .ubuntu import UbuntuMirror
-
-from .flatcar import FlatcarMirror
-
 from .redhat import RedhatContainer
-
-from .archlinux import ArchLinuxMirror
-
-from .bottlerocket import BottleRocketMirror
-
+from .rockylinux import RockyLinuxMirror
 from .talos import TalosMirror
+from .ubuntu import UbuntuMirror
 
 # Keys are taken from /etc/os-release where available.
 # Must be the same used by driverkit builders (https://github.com/khulnasoft/driverkit).
 DISTROS = {
-    'alinux': AliyunLinuxMirror,
-    'almalinux': AlmaLinuxMirror,
-    'amazonlinux': AmazonLinux1Mirror,
-    'amazonlinux2': AmazonLinux2Mirror,
-    'amazonlinux2022': AmazonLinux2022Mirror,
-    'amazonlinux2023': AmazonLinux2023Mirror,
-    'centos': CentosMirror,
-    'fedora': FedoraMirror,
-    'ol': OracleMirror,
-    'photon': PhotonOsMirror,
-    'rocky': RockyLinuxMirror,
-    'opensuse': OpenSUSEMirror,
-    'debian': DebianMirror,
-    'ubuntu': UbuntuMirror,
-    'flatcar': FlatcarMirror,
-    'minikube': MinikubeMirror,
-    'redhat': RedhatContainer,
-    'arch': ArchLinuxMirror,
-    'bottlerocket': BottleRocketMirror,
-    'talos': TalosMirror,
+    "alinux": AliyunLinuxMirror,
+    "almalinux": AlmaLinuxMirror,
+    "amazonlinux": AmazonLinux1Mirror,
+    "amazonlinux2": AmazonLinux2Mirror,
+    "amazonlinux2022": AmazonLinux2022Mirror,
+    "amazonlinux2023": AmazonLinux2023Mirror,
+    "centos": CentosMirror,
+    "fedora": FedoraMirror,
+    "ol": OracleMirror,
+    "photon": PhotonOsMirror,
+    "rocky": RockyLinuxMirror,
+    "opensuse": OpenSUSEMirror,
+    "debian": DebianMirror,
+    "ubuntu": UbuntuMirror,
+    "flatcar": FlatcarMirror,
+    "minikube": MinikubeMirror,
+    "redhat": RedhatContainer,
+    "arch": ArchLinuxMirror,
+    "bottlerocket": BottleRocketMirror,
+    "talos": TalosMirror,
 }
+
 
 def to_driverkit_config(d, res):
     dk_configs = []
@@ -79,6 +78,7 @@ def to_driverkit_config(d, res):
                 dk_configs.append(dk_conf)
 
     return dk_configs
+
 
 def crawl_kernels(distro, version, arch, images):
     ret = {}

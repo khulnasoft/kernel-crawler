@@ -1,35 +1,36 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Copyright (C) 2023 The Falco Authors.
+# Copyright (C) 2023 The KhulnaSoft Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-    # http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import base64
+import os
 
 import requests
 from lxml import html
 
 from . import repo
-from .repo import Repository, Distro
 from .debian import fixup_deb_arch
+from .repo import Distro, Repository
+
 
 class FlatcarRepository(Repository):
     def __init__(self, base_url):
         self.base_url = base_url
 
-    def get_package_tree(self, version=''):
-        release = os.path.basename(self.base_url.rstrip('/'))
+    def get_package_tree(self, version=""):
+        release = os.path.basename(self.base_url.rstrip("/"))
         if version not in release:
             return {}
-        defconfig = os.path.join(self.base_url, 'flatcar_production_image_kernel_config.txt')
+        defconfig = os.path.join(self.base_url, "flatcar_production_image_kernel_config.txt")
         defconfig_base64 = base64.b64encode(requests.get(defconfig).content).decode()
         return {release: [defconfig_base64]}
 
@@ -38,11 +39,13 @@ class FlatcarRepository(Repository):
 
 
 class FlatcarMirror(Distro):
-    CHANNELS = ['stable', 'beta', 'alpha']
+    CHANNELS = ["stable", "beta", "alpha"]
 
     def __init__(self, arch):
         arch = fixup_deb_arch(arch)
-        mirrors = ['https://{c}.release.flatcar-linux.net/{a}-usr/'.format(c=channel, a=arch) for channel in self.CHANNELS]
+        mirrors = [
+            "https://{c}.release.flatcar-linux.net/{a}-usr/".format(c=channel, a=arch) for channel in self.CHANNELS
+        ]
         super(FlatcarMirror, self).__init__(mirrors, arch)
 
     def scan_repo(self, base_url):
@@ -54,17 +57,16 @@ class FlatcarMirror(Distro):
         dists = dists.content
         doc = html.fromstring(dists, base_url)
         dists = doc.xpath('/html/body//a[not(@href="../")]/@href')
-        return [FlatcarRepository('{}{}'.format(base_url, dist.lstrip('./'))) for dist in dists
-                if dist.endswith('/')
-                and dist.startswith('./')
-                and 'current' not in dist
-                and '-' not in dist
-                ]
+        return [
+            FlatcarRepository("{}{}".format(base_url, dist.lstrip("./")))
+            for dist in dists
+            if dist.endswith("/") and dist.startswith("./") and "current" not in dist and "-" not in dist
+        ]
 
     def list_repos(self):
         repos = []
-        for repo in self.mirrors:
-            repos.extend(self.scan_repo(repo))
+        for mirror in self.mirrors:
+            repos.extend(self.scan_repo(mirror))
         return repos
 
     def to_driverkit_config(self, release, deps):

@@ -1,5 +1,6 @@
 import bz2
 import zlib
+
 import requests
 
 try:
@@ -7,12 +8,13 @@ try:
 except ImportError:
     from backports import lzma
 
+
 def get_url(url):
     resp = requests.get(
         url,
         headers={  # some URLs require a user-agent, otherwise they return HTTP 406 - this one is fabricated
-            'user-agent': 'dummy'
-        }
+            "user-agent": "dummy"
+        },
     )
 
     # if 404, silently fail
@@ -22,18 +24,18 @@ def get_url(url):
         resp.raise_for_status()
 
     # if no error, return the contents
-    if url.endswith('.gz'):
+    if url.endswith(".gz"):
         return zlib.decompress(resp.content, 47)
-    elif url.endswith('.xz'):
+    elif url.endswith(".xz"):
         return lzma.decompress(resp.content)
-    elif url.endswith('.bz2'):
+    elif url.endswith(".bz2"):
         return bz2.decompress(resp.content)
     else:
         return resp.content
 
 
 def get_first_of(urls):
-    last_exc = Exception('Empty url list')
+    last_exc = Exception("Empty url list")
     for idx, url in enumerate(urls):
         try:
             content = get_url(url)

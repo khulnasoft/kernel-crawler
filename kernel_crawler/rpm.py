@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Copyright (C) 2023 The Falco Authors.
+# Copyright (C) 2023 The KhulnaSoft Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-    # http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -13,23 +13,25 @@
 
 #!/usr/bin/env python
 from __future__ import print_function
+
+import io
+import re
+import sqlite3
+import tempfile
 import traceback
 
 import requests
-from lxml import etree, html
-import sqlite3
-import tempfile
-import re
 import zstandard as zstd
-import io
+from lxml import etree, html
+
+from kernel_crawler.utils.download import get_url
 
 from . import repo
-from kernel_crawler.utils.download import get_url
 
 try:
     import lzma
 except ImportError:
-    from backports import lzma
+    pass
 
 
 class RpmRepository(repo.Repository):
@@ -42,11 +44,14 @@ class RpmRepository(repo.Repository):
     @classmethod
     def get_loc_by_xpath(cls, text, expr):
         e = etree.fromstring(text)
-        loc = e.xpath(expr, namespaces={
-            'common': 'http://linux.duke.edu/metadata/common',
-            'repo': 'http://linux.duke.edu/metadata/repo',
-            'rpm': 'http://linux.duke.edu/metadata/rpm'
-        })
+        loc = e.xpath(
+            expr,
+            namespaces={
+                "common": "http://linux.duke.edu/metadata/common",
+                "repo": "http://linux.duke.edu/metadata/repo",
+                "rpm": "http://linux.duke.edu/metadata/rpm",
+            },
+        )
 
         # if unable to find the expression in the XML, return None
         if not loc:
@@ -57,25 +62,29 @@ class RpmRepository(repo.Repository):
 
     @classmethod
     def kernel_package_query(cls):
-        return '''name IN ('kernel', 'kernel-devel', 'kernel-ml', 'kernel-ml-devel')'''
+        return """name IN ('kernel', 'kernel-devel', 'kernel-ml', 'kernel-ml-devel')"""
 
     @classmethod
-    def build_base_query(cls, filter=''):
-        base_query = '''SELECT version || '-' || release || '.' || arch, pkgkey FROM packages WHERE {}'''.format(
-            cls.kernel_package_query())
+    def build_base_query(cls, filter=""):
+        base_query = """SELECT version || '-' || release || '.' || arch, pkgkey FROM packages WHERE {}""".format(
+            cls.kernel_package_query()
+        )
         if not filter:
             return base_query, ()
         else:
             # if filtering, match anythint like 5.6.6 (version) or 5.6.6-300.fc32 (version || '-' || release)
-            return base_query + ''' AND (version = ? OR version || '-' || "release" = ?)''', (filter, filter)
+            return (
+                base_query + """ AND (version = ? OR version || '-' || "release" = ?)""",
+                (filter, filter),
+            )
 
     @classmethod
-    def parse_repo_db(cls, repo_db, filter=''):
+    def parse_repo_db(cls, repo_db, filter=""):
         db = sqlite3.connect(repo_db)
         cursor = db.cursor()
 
         base_query, args = cls.build_base_query(filter)
-        query = '''WITH RECURSIVE transitive_deps(version, pkgkey) AS (
+        query = """WITH RECURSIVE transitive_deps(version, pkgkey) AS (
                 {}
                 UNION
                 SELECT transitive_deps.version, provides.pkgkey
@@ -83,19 +92,21 @@ class RpmRepository(repo.Repository):
                     INNER JOIN requires USING (name, flags, epoch, version, "release")
                     INNER JOIN transitive_deps ON requires.pkgkey = transitive_deps.pkgkey
             ) SELECT transitive_deps.version, location_href FROM packages INNER JOIN transitive_deps using(pkgkey);
-        '''.format(base_query)
+        """.format(base_query)
 
         cursor.execute(query, args)
         return cursor.fetchall()
 
     def get_repodb_url(self):
-        repomd = get_url(self.base_url + 'repodata/repomd.xml')
+        repomd = get_url(self.base_url + "repodata/repomd.xml")
         if not repomd:
             return None
         pkglist_url = self.get_loc_by_xpath(repomd, '//repo:repomd/repo:data[@type="primary_db"]/repo:location/@href')
+        if not pkglist_url:
+            return None
         return self.base_url + pkglist_url
 
-    def get_package_tree(self, filter=''):
+    def get_package_tree(self, filter=""):
         packages = {}
         try:
             repodb_url = self.get_repodb_url()
@@ -117,12 +128,12 @@ class RpmRepository(repo.Repository):
 
 
 class RpmMirror(repo.Mirror):
-
     def __init__(self, base_url, variant, repo_filter=None):
         self.base_url = base_url
         self.variant = variant
         if repo_filter is None:
-            repo_filter = lambda _: True
+            def repo_filter(_):
+                return True
         self.repo_filter = repo_filter
         self.url = base_url
 
@@ -130,15 +141,15 @@ class RpmMirror(repo.Mirror):
         return self.base_url
 
     def dist_url(self, dist):
-        return '{}{}{}'.format(self.base_url, dist, self.variant)
+        return "{}{}{}".format(self.base_url, dist, self.variant)
 
     def dist_exists(self, dist):
         try:
             r = requests.get(
                 self.dist_url(dist),
                 headers={  # some URLs require a user-agent, otherwise they return HTTP 406 - this one is fabricated
-                    'user-agent': 'dummy'
-                }
+                    "user-agent": "dummy"
+                },
             )
             r.raise_for_status()
         except requests.exceptions.RequestException:
@@ -147,86 +158,88 @@ class RpmMirror(repo.Mirror):
 
     def list_repos(self):
         dists = requests.get(
-            self.base_url, 
+            self.base_url,
             headers={  # some URLs require a user-agent, otherwise they return HTTP 406 - this one is fabricated
-                'user-agent': 'dummy'
-            }
+                "user-agent": "dummy"
+            },
         )
         dists.raise_for_status()
         dists = dists.content
         doc = html.fromstring(dists, self.base_url)
         dists = doc.xpath('/html/body//a[not(@href="../")]/@href')
-        return [RpmRepository(self.dist_url(dist)) for dist in dists
-                if dist.endswith('/')
-                and not dist.startswith('/')
-                and not dist.startswith('?')
-                and not dist.startswith('http')
-                and self.repo_filter(dist)
-                and self.dist_exists(dist)
-                ]
+        return [
+            RpmRepository(self.dist_url(dist))
+            for dist in dists
+            if dist.endswith("/")
+            and not dist.startswith("/")
+            and not dist.startswith("?")
+            and not dist.startswith("http")
+            and self.repo_filter(dist)
+            and self.dist_exists(dist)
+        ]
 
 
 class SUSERpmMirror(RpmMirror):
-
-    def __init__(self, base_url, variant, arch, repo_filter=None, isZstd=False):
-        '''
+    def __init__(self, base_url, variant, arch, repo_filter=None):
+        """
         SUSERpmMirror looks like a regular RpmMirror, except that it requires
         the arch in the constructor. The arch is used for passing through to SUSERpmRepository,
         which uses the arch to query for the correct kernel-default-devel out of the package listing.
-        '''
+        """
         self.base_url = base_url
         self.variant = variant
         self.arch = arch
         if repo_filter is None:
-            repo_filter = lambda _: True
+            def repo_filter(_):
+                return True
         self.repo_filter = repo_filter
         self.url = base_url
-        self.isZstd = isZstd
 
     def list_repos(self):
-        '''
+        """
         Overridden from RpmMirror exchanging RpmRepository for SUSERpmRepository.
-        '''
+        """
         dists = requests.get(
             self.base_url,
             headers={  # some URLs require a user-agent, otherwise they return HTTP 406 - this one is fabricated
-                'user-agent': 'dummy'
-            }
+                "user-agent": "dummy"
+            },
         )
         dists.raise_for_status()
         dists = dists.content
         doc = html.fromstring(dists, self.base_url)
         dists = doc.xpath('/html/body//a[not(@href="../")]/@href')
-        ret = [SUSERpmRepository(self.dist_url(dist), self.arch, self.isZstd) for dist in dists
-                if dist.endswith('/')
-                and not dist.startswith('/')
-                and not dist.startswith('?')
-                and not dist.startswith('http')
-                and self.repo_filter(dist)
-                and self.dist_exists(dist)
-                ]
+        ret = [
+            SUSERpmRepository(self.dist_url(dist), self.arch)
+            for dist in dists
+            if dist.endswith("/")
+            and not dist.startswith("/")
+            and not dist.startswith("?")
+            and not dist.startswith("http")
+            and self.repo_filter(dist)
+            and self.dist_exists(dist)
+        ]
 
         return ret
 
+
 class SUSERpmRepository(RpmRepository):
-
     # the kernel headers package name pattern to search for in the package listing XML
-    _kernel_devel_pattern = 'kernel-default-devel-'
+    _kernel_devel_pattern = "kernel-default-devel-"
 
-    def __init__(self, base_url, arch, isZstd):
-        '''
+    def __init__(self, base_url, arch):
+        """
         Constructor, which sets the base URL and the arch.
         The arch is used for finding the correct package in the repomd.
-        '''
+        """
         self.base_url = base_url
         self.arch = arch
-        self.isZstd = isZstd
 
     def get_repodb_url(self):
-        '''
+        """
         SUSE stores their primary package listing under a different path in the XML from a normal RPM repomd.
-        '''
-        repomd = get_url(self.base_url + 'repodata/repomd.xml')
+        """
+        repomd = get_url(self.base_url + "repodata/repomd.xml")
         if not repomd:
             return None
         pkglist_url = self.get_loc_by_xpath(repomd, '//repo:repomd/repo:data[@type="primary"]/repo:location/@href')
@@ -239,32 +252,51 @@ class SUSERpmRepository(RpmRepository):
         return self.base_url + pkglist_url
 
     def parse_kernel_release(self, kernel_devel_pkg):
-        '''
+        """
         Given the kernel devel package string, parse it for the kernel release
         by trimming off the front bits of the string and the extension.
 
         Example:
             x86_64/kernel-default-devel-5.14.21-150400.22.1.x86_64.rpm -> 5.14.21-150400.22.1.x86_64
-        '''
-        trimmed = kernel_devel_pkg.replace(f'{self.arch}/{self._kernel_devel_pattern}', '')
-        version = trimmed.replace('.rpm', '')
+        """
+        trimmed = kernel_devel_pkg.replace(f"{self.arch}/{self._kernel_devel_pattern}", "")
+        version = trimmed.replace(".rpm", "")
 
         return version
 
     def build_kernel_devel_noarch_url(self, kernel_release):
-        '''
+        """
         A simple method for building the noarch kernel-devel package using the kernel release.
         The kernel release will contain the package arch, but kernel-devel will be a noarch package.
-        '''
-        return f'{self.base_url}noarch/kernel-devel-{kernel_release}.rpm'.replace(self.arch, 'noarch')
+        """
+        return f"{self.base_url}noarch/kernel-devel-{kernel_release}.rpm".replace(self.arch, "noarch")
 
-    def get_package_tree(self, filter=''):
-        '''
+    def open_repo(self, repo_path, isZstd):
+        package_match = f"{self.arch}/{self._kernel_devel_pattern}"
+        # regex searching through a file is more memory efficient
+        # than parsing the xml into an object structure with lxml etree
+        open_mode = "r"
+        if isZstd:
+            open_mode = "rb"
+        with open(repo_path, mode=open_mode) as f:
+            if isZstd:
+                dctx = zstd.ZstdDecompressor(max_window_size=2147483648)
+                stream_reader = dctx.stream_reader(f)
+                text = io.TextIOWrapper(stream_reader, encoding="utf-8").read()
+            else:
+                text = str(f.read())
+
+            search = re.search(f'.*href="({package_match}.*rpm)', text)
+            if search:
+                return search.group(1)
+            return None
+
+    def get_package_tree(self, filter=""):
+        """
         Build the package tree for SUSE, which finds the repomd, parses it for the primary package listing,
         and queries for the kernel-default-devel package url. SUSE stores the primary package listing in XML.
         Once parsed, use the package URL to parse the kernel release and determine the kernel-devel*noarch package URL.
-        '''
-
+        """
 
         # attempt to query for the repomd - bail out if 404
         try:
@@ -276,29 +308,14 @@ class SUSERpmRepository(RpmRepository):
             # traceback.print_exc()  # extremely verbose, uncomment if debugging
             return {}
 
-        package_match = f'{self.arch}/{self._kernel_devel_pattern}'
-        kernel_default_devel_pkg_url = None
-
         # write the repodb xml to a tempfile for parsing
         with tempfile.NamedTemporaryFile() as tf:
             tf.write(repodb)
             tf.flush()
-            open_mode = 'r'
-            if self.isZstd:
-                open_mode = 'rb'
-
-            # regex searching through a file is more memory efficient
-            # than parsing the xml into an object structure with lxml etree
-            with open(tf.name, mode=open_mode) as f:
-                if self.isZstd:
-                    dctx = zstd.ZstdDecompressor(max_window_size=2147483648)
-                    stream_reader = dctx.stream_reader(f)
-                    text = io.TextIOWrapper(stream_reader, encoding='utf-8').read()
-                else:
-                    text = str(f.read())
-                search = re.search(f'.*href="({package_match}.*rpm)', text)
-                if search:
-                    kernel_default_devel_pkg_url = search.group(1)
+            try:
+                kernel_default_devel_pkg_url = self.open_repo(tf.name, False)
+            except UnicodeDecodeError:
+                kernel_default_devel_pkg_url = self.open_repo(tf.name, True)
             tf.close()  # delete the tempfile to free up memory
 
         # check to ensure a kernel_devel_pkg was found
